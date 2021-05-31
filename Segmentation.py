@@ -7,18 +7,14 @@ from PlateCV.Utils import *
 
 
 def straighten_image(img, plot=False, **kwargs):
-
     hzn_edges = filters.sobel_h(img)
     hzn_edges = canny(hzn_edges)
-    hzn_edges_binary = hzn_edges > filters.threshold_otsu(hzn_edges)
+    hzn_edges_binary = morphology.closing(hzn_edges > filters.threshold_otsu(hzn_edges), morphology.square(3))
     lines = probabilistic_hough_line(hzn_edges_binary, **kwargs)
 
-    try:
-        argands = [np.arctan(np.abs(p1[1] - p0[1]) / np.abs(p1[0] - p0[0])) for p0, p1 in [line for line in lines] if p0[0] != p1[1]]
-    except ZeroDivisionError:
-        argands = (0, )
-        plt.imshow(hzn_edges_binary)
-        plt.show()
+    argands = [np.arctan(np.abs(p1[1] - p0[1]) / np.abs(p1[0] - p0[0]))
+               for p0, p1 in [line for line in lines] if p0[0] != p1[1]]
+
     theta_avg = np.mean(argands)
     rot_degrees = theta_avg/np.pi * 180.
 
@@ -36,7 +32,12 @@ def straighten_image(img, plot=False, **kwargs):
 def find_plate_region(img, canny_sigma=1, report=False):
     # Find regions separated by edges
     edges = morphology.closing(canny(img, sigma=canny_sigma), morphology.square(5))
-    thresh = filters.threshold_otsu(edges)
+    try:
+        thresh = filters.threshold_otsu(edges)
+    except ValueError:
+        plt.imshow(img)
+        plt.show()
+        return img
     labeled, num_regions = label(edges < thresh, return_num=True, connectivity=1)
     if report:
         print("Number of regions:", num_regions)
