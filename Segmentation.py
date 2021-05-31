@@ -1,13 +1,28 @@
 from skimage import morphology, filters
 from skimage.feature import canny
 from skimage.measure import label, regionprops, regionprops_table
-from skimage.transform import probabilistic_hough_line
+from skimage.transform import probabilistic_hough_line, rotate
 import matplotlib.pyplot as plt
 from PlateCV.Utils import *
 
 
-def straighten_image(img):
-    pass
+def straighten_image(img, plot=False, **kwargs):
+    hzn_edges = filters.sobel_h(img)
+    hzn_edges_binary = hzn_edges > filters.threshold_otsu(hzn_edges)
+    lines = probabilistic_hough_line(hzn_edges_binary, **kwargs)
+
+    argands = [np.arctan((y[1] - y[0]) / (x[1] - x[0])) for y, x in [line for line in lines]]
+    theta_avg = np.mean(argands)
+
+    if plot:
+        plt.imshow(img, cmap='Greys')
+        for line in lines:
+            x, y = line
+            plt.plot((x[0], y[0]), (x[1], y[1]))
+        plt.title(f"Rotation = {theta_avg/np.pi:.4f}$\\pi$ radians")
+        plt.show()
+
+    return rotate(img, angle=np.pi-theta_avg)
 
 
 def find_plate_region(img, canny_sigma=1, report=False):
