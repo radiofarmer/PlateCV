@@ -142,7 +142,7 @@ class Plate:
 
     def __next__(self):
         if self._n < len(self._constructs):
-            constr = self._constructs[self._construct_names[self._n]]
+            constr = self._constructs[self.labels[self._n]]
             self._n += 1
             return constr
         else:
@@ -224,12 +224,20 @@ class Plate:
             plt.show()
         else:
             plt.close()
+        # Construct name checklist
+        missing_constructs = [c for c in self._construct_names if c is not None]
+        # Create construct objects
         for s, c in zip(sectors, self._construct_names):
             spots_in_sector = [b for b in spots if is_in_bbox(get_box_center(b), s)]
             print(f"Found {len(spots_in_sector)} spots in construct '{c}'")
             constr = Construct(c, self._num_dilutions)
             constr.set_rois(img, spots_in_sector)
             self._constructs[c] = constr
+            # Remove construct from 'missing' list if found
+            missing_constructs.remove(c)
+        # Add empty construct objects for spots that were not found on the plate
+        for c in missing_constructs:
+            self._constructs[c] = Construct(c, self._num_dilutions)
         self._sectors = sectors
 
     def make_figure(self, layout=None, **kwargs):
