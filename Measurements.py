@@ -1,6 +1,7 @@
 from PlateCV.Structures import ROI
-from skimage import morphology, measure
+from skimage import morphology, measure, io
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def measure_coverage(roi: ROI):
@@ -10,12 +11,17 @@ def measure_coverage(roi: ROI):
         return roi.mask / roi.area
 
 
-def measure_optical_density(roi: ROI, return_image=False, **kwargs):
+def measure_optical_density(roi: ROI, return_image=False, save_as=None, **kwargs):
     if roi is None:
         return (0., None) if return_image else 0.
+    # Remove background
     mask = roi.mask
     mask_labeled = measure.label(mask, **kwargs)
     colonies = np.where(mask_labeled != 0, roi.data, 0)
+
+    if isinstance(save_as, str):
+        io.imsave(save_as, colonies)
+
     # Calculate the OD for a theoretically all-white image
     max_od = colonies.size * 2**(8 if colonies.dtype == np.uint8 else 16)
     if return_image:
