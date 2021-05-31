@@ -157,6 +157,12 @@ class Plate:
         found than expected.
         :return: None
         """
+        # First, check whether any spots are present at all
+        if not len(spots):
+            for const in self.labels:
+                self._constructs[const] = Construct(const, self._num_dilutions)
+                return
+
         # List to hold the regions that (hopefully) contain spots derived from the same construct
         sectors = []
         # Crop to area containing bounding boxes

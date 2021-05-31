@@ -16,7 +16,7 @@ def straighten_image(img, plot=False, **kwargs):
                for p0, p1 in [line for line in lines] if p0[0] != p1[1]]
 
     theta_avg = np.mean(argands)
-    rot_degrees = theta_avg/np.pi * 180.
+    rot_degrees = theta_avg / np.pi * 180.
 
     if plot:
         plt.imshow(img, cmap='Greys')
@@ -86,10 +86,15 @@ def find_spots(img, radius, design):
     try:
         start_spots = [s for s in start_spots if s.equivalent_diameter > diam_cutoff]
     except IndexError:
-        print("No spots found!")
+        print("No spots found on plate!")
         return start_spots, []
-    top_left = sorted([s for s in start_spots if s.equivalent_diameter > diam_cutoff],
-                      key=lambda r: np.sum(r.bbox[:2]))[0]
+    sorted_by_coord = sorted([s for s in start_spots if s.equivalent_diameter > diam_cutoff],
+                             key=lambda r: np.sum(r.bbox[:2]))
+    if sorted_by_coord:
+        top_left = sorted_by_coord[0]
+    else:
+        print("No spots found on plate!")
+        return start_spots, []
 
     # If there are multiple rows (if vertical) or columns (if horizontal) of constructs, find the span between them
     if hzn and cols > 1 or not hzn and rows > 1:
@@ -110,7 +115,7 @@ def find_spots(img, radius, design):
     else:
         span = 0
     step_size = span / spc  # Space between spots of the same construct
-    # Get bounding boxes for all re
+    # Get bounding boxes for all regions
     bboxes = []
     spots_binary = spots > spot_thresh
     for reg in start_spots:
@@ -138,7 +143,7 @@ def find_spots(img, radius, design):
                                                    threshold="binary")
                         bboxes.append(adj_spot_box)
     bboxes = [expand_bounds(spot_regions, b) for b in bboxes]
-    return spots, bboxes  # TODO: When done testing, make this function return `spots`
+    return spots, bboxes
 
 
 def extract_and_label(img, bbox, threshold, tolerance):
