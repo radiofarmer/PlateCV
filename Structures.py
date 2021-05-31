@@ -246,7 +246,10 @@ class Plate:
                 if self._construct_names[r + c*layout[0]] is None:
                     ax[r, c].axis('off')
                     continue
-                ax[r, c].imshow(extract(self._img, self._sectors[r + c*layout[0]]), **kwargs)
+                try:
+                    ax[r, c].imshow(extract(self._img, self._sectors[r + c*layout[0]]), **kwargs)
+                except IndexError:
+                    ax[r, c].axis('off')
                 ax[r, c].xaxis.set_ticks([])
                 ax[r, c].yaxis.set_ticks([])
                 ax[r, c].set_ylabel(self._construct_names[r + c*layout[0]].replace("_", " "))

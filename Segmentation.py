@@ -7,22 +7,30 @@ from PlateCV.Utils import *
 
 
 def straighten_image(img, plot=False, **kwargs):
+
     hzn_edges = filters.sobel_h(img)
+    hzn_edges = canny(hzn_edges)
     hzn_edges_binary = hzn_edges > filters.threshold_otsu(hzn_edges)
     lines = probabilistic_hough_line(hzn_edges_binary, **kwargs)
 
-    argands = [np.arctan((y[1] - y[0]) / (x[1] - x[0])) for y, x in [line for line in lines]]
+    try:
+        argands = [np.arctan(np.abs(p1[1] - p0[1]) / np.abs(p1[0] - p0[0])) for p0, p1 in [line for line in lines] if p0[0] != p1[1]]
+    except ZeroDivisionError:
+        argands = (0, )
+        plt.imshow(hzn_edges_binary)
+        plt.show()
     theta_avg = np.mean(argands)
+    rot_degrees = theta_avg/np.pi * 180.
 
     if plot:
         plt.imshow(img, cmap='Greys')
         for line in lines:
-            x, y = line
-            plt.plot((x[0], y[0]), (x[1], y[1]))
-        plt.title(f"Rotation = {theta_avg/np.pi:.4f}$\\pi$ radians")
+            p0, p1 = line
+            plt.plot((p0[0], p1[0]), (p0[1], p1[1]))
+        plt.title(f"Rotation = {rot_degrees:.2f} degrees")
         plt.show()
-
-    return rotate(img, angle=np.pi-theta_avg)
+    print(f"Image rotated {-rot_degrees} degrees")
+    return rotate(img, angle=rot_degrees)
 
 
 def find_plate_region(img, canny_sigma=1, report=False):
@@ -87,8 +95,17 @@ def find_spots(img, radius, design):
         idx = int(hzn)
         test_point = top_left.centroid[idx] + spc * spot_diam
         beyond_point = [r for r in start_spots if r.centroid[idx] > test_point and r.equivalent_diameter > diam_cutoff]
-        next_group_start = sorted(beyond_point, key=lambda r: r.centroid[idx] - test_point)[0]
-        span = next_group_start.centroid[idx] - top_left.centroid[idx]
+        try:
+            next_group_start = sorted(beyond_point, key=lambda r: r.centroid[idx] - test_point)[0]
+            span = next_group_start.centroid[idx] - top_left.centroid[idx]
+        except IndexError:
+            # This error occurs when `beyond_point` is an empty list, indicating that constructs are only visible
+            # in one row or column
+            span = 0
+            if hzn:
+                cols = 1
+            else:
+                rows = 0
     else:
         span = 0
     step_size = span / spc  # Space between spots of the same construct
