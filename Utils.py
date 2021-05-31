@@ -61,3 +61,16 @@ def plot_rois(img, rois, show=False):
 
 def is_in_bbox(point, bbox):
     return (bbox[0] <= point[0] <= bbox[2]) and (bbox[1] <= point[1] <= bbox[3])
+
+
+def intersect(b0, b1):
+    boxes_intersect = False
+    b1_corners = ((b1[0], b1[1]),
+                  (b1[0], b1[3]),
+                  (b1[2], b1[3]),
+                  (b1[2], b1[1]))
+    for c in b1_corners:
+        y, x = c
+        boxes_intersect |= b0[0] < y < b0[2]
+        boxes_intersect |= b0[1] < x < b0[3]
+    return boxes_intersect

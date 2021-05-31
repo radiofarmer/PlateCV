@@ -74,7 +74,10 @@ class Construct:
             return
         # Calculate global construct threshold
         all_pixels = np.concatenate([itm[1].data.ravel() for itm in self._rois.items()])
-        self._threshold = Thresholds[threshold](all_pixels)
+        if isinstance(threshold, str):
+            self._threshold = Thresholds[threshold](all_pixels)
+        else:
+            self._threshold = threshold
         # Set the threshold of all ROIs to the global threshold value
         for k in self._rois.keys():
             self._rois[k].set_threshold(self._threshold)
@@ -124,6 +127,7 @@ class Plate:
 
         # Construct data
         self._img = None
+        self._threshold = 0
         self._constructs = {}
         self._sectors = []
 
@@ -148,20 +152,22 @@ class Plate:
         else:
             raise StopIteration
 
-    def read_spotting_data(self, img, spots, manual_range=False, save_path=None, show_plot=False):
+    def read_spotting_data(self, img, spots, manual_range=False, save_path=None, show_plot=False, threshold='li'):
         """
         Generate construct objects from a segmented plate image
         :param img: The image data of the whole relevant area of the plate, as a numpy array
         :param spots: Coordinates of bounding boxes of all spots
         :param manual_range: Specifies whether to ask for manual input of a new range if fewer rows or columns are
         found than expected.
+        :param show_plot: Plot the extracted region, with spot and sector bounding boxes
+        :param threshold: The method for measuring the plate global threshold value
         :return: None
         """
         # First, check whether any spots are present at all
         if not len(spots):
             for const in self.labels:
                 self._constructs[const] = Construct(const, self._num_dilutions)
-                return
+            return
 
         # List to hold the regions that (hopefully) contain spots derived from the same construct
         sectors = []
@@ -172,8 +178,11 @@ class Plate:
             np.max([b[2] for b in spots]),
             np.max([b[3] for b in spots])
         ]
+        # Cut out only the area containing spots and adjust the spot coordinates accordingly
         img, spots = extract(img, bounds, spots)
         self._img = img
+        # Measure a global threshold value
+        self._threshold = Thresholds[threshold](img)
         fig, ax = plot_rois(img, spots, False)
 
         # Check for missing rows or columns
@@ -234,13 +243,15 @@ class Plate:
         missing_constructs = [c for c in self._construct_names if c is not None]
         # Create construct objects
         for s, c in zip(sectors, self._construct_names):
+            # Get the bounding boxes whose center point is located within the sector bounding box
             spots_in_sector = [b for b in spots if is_in_bbox(get_box_center(b), s)]
             print(f"Found {len(spots_in_sector)} spots in construct '{c}'")
             constr = Construct(c, self._num_dilutions)
-            constr.set_rois(img, spots_in_sector)
+            constr.set_rois(img, spots_in_sector, threshold=self.threshold)
             self._constructs[c] = constr
-            # Remove construct from 'missing' list if found
-            missing_constructs.remove(c)
+            # Remove construct from 'missing' list if ROIs are found
+            if spots_in_sector:
+                missing_constructs.remove(c)
         # Add empty construct objects for spots that were not found on the plate
         for c in missing_constructs:
             self._constructs[c] = Construct(c, self._num_dilutions)
@@ -277,6 +288,9 @@ class Plate:
     def layout(self):
         return self._layout
 
+    @property
+    def threshold(self):
+        return self._threshold
 
 class Experiment:
     def __init__(self, name: str):
