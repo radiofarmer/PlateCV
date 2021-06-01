@@ -66,13 +66,13 @@ def find_spots(img, radius, design, show_plot=False, save_plot=None, ecc_cutoff=
         spc = design['spots_per_construct']
         hzn = design['horizontal']
     n = rows * cols
-    # Smooth out the background, leaving only the colonies
-    spots = morphology.white_tophat(img, morphology.disk(radius))
+    # TODO: Apply smoothing
+    spots = img
     # Get the size of the spots based on the largest ones visible
     #   First consolidate the spots into solid regions
     spot_thresh = filters.threshold_li(spots)  # Li's method chosen empirically
     # Turn large colonies into solid regions
-    spot_edges = morphology.closing(spots > spot_thresh, morphology.disk(radius / 2))
+    spot_edges = morphology.closing(spots > spot_thresh, morphology.disk(radius / 4))
     # Get rid of individual colonies
     spot_edges = morphology.opening(spot_edges > spot_thresh, morphology.disk(radius * 0.1))
     spot_regions = label(spot_edges)
@@ -81,6 +81,7 @@ def find_spots(img, radius, design, show_plot=False, save_plot=None, ecc_cutoff=
     spot_regionprops = [r for r in regionprops(spot_regions) if r.eccentricity < ecc_cutoff]
     # Sort by area
     start_spots = sorted(spot_regionprops, key=lambda r: r.area, reverse=True)[:n * spc]
+    plot_rois(img, [s.bbox for s in start_spots])
     # Save image with bounding boxes, if a filepath is provided
     if isinstance(save_plot, str):
         fig, ax = plot_rois(img, [s.bbox for s in spot_regionprops])
@@ -145,8 +146,7 @@ def find_spots(img, radius, design, show_plot=False, save_plot=None, ecc_cutoff=
                                                    (spot_box[0], x_new, spot_box[2], x_new + spot_diam),
                                                    threshold="binary")
                         # TODO: Only add the new bounding box if it doesn't overlap with the previous one
-                        if not check_intersection(bboxes[-1], adj_spot_box):
-                            bboxes.append(adj_spot_box)
+                        bboxes.append(adj_spot_box)
                     else:
                         y_new = spot_box[0] + i * step_size
                         adj_spot_box = refine_spot(spots_binary,
