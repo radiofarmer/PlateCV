@@ -67,7 +67,7 @@ class Construct:
     def __bool__(self):
         return len(self._rois) > 0
 
-    def set_rois(self, img, bboxes, threshold='li'):
+    def set_rois(self, img, bboxes, threshold: Union[str, int] = 'li'):
         if bboxes:
             self._rois = {i: ROI(extract(img, box), self._label + f"_D{i}")
                           for i, box in enumerate(bboxes)}
@@ -194,7 +194,8 @@ class Plate:
         self._img = img
         # Measure a global threshold value
         self._threshold = Thresholds[threshold](img)
-        fig, ax = plot_rois(img, spots, False)
+        fig, ax = plt.subplots()
+        ax.imshow(img)
 
         # Check for missing rows or columns by comparing the size of the image to the predicted size based
         # on the space between spots
@@ -211,7 +212,7 @@ class Plate:
             idx = np.unravel_index(np.argmax(all_dists), all_dists.shape)
             b0, b1 = (spots[i] for i in idx)
             plot_rois(img, [b0, b1], show=True)
-            sep = input(f"How many {'columns' if self._horizontal else 'rows'} separate these two spots?")
+            sep = int(input(f"How many {'columns' if self._horizontal else 'rows'} separate these two spots?"))
             if self._horizontal:
                 padding = (get_box_center(b1)[1] - get_box_center(b0)[1]) / sep - spot_diam * self._num_dilutions
                 padding /= self._num_dilutions - 1
@@ -223,22 +224,27 @@ class Plate:
         if self._horizontal:
             row_start, row_end = 0, nrows
             col_start, col_end = 0, ncols
-            while nrows > 1 and spot_diam * nrows + (nrows - 1) * padding > img_h:
-                nrows -= 1
+            while nrows > 1 and spot_diam * nrows + (nrows - 1) * padding > img_h + spot_diam/2:
                 print(f"Found missing row on plate {self._group}")
                 if manual_range:
-                    row_start = input(f"Specify row start offset (currently {row_start}):")
-                    row_end = input(f"Specify final row number (currently {row_end}):")
+                    row_start = int(input(f"Specify row start offset (currently {row_start}):"))
+                    row_end = int(input(f"Specify final row number (currently {row_end-1}):")) + 1
+                    plot_rois(img, spots, show=True)
+                    nrows = row_end - row_start
                 else:
+                    # Assume missing row is the last one
+                    nrows -= 1
                     row_end = nrows
-            while ncols > 1 and spot_diam * ncols * self._num_dilutions + (
-                    ncols * self._num_dilutions - 1) * padding > img_w:
-                ncols -= 1
+            while ncols > 1 and spot_diam * ncols * self._num_dilutions + \
+                    (ncols * self._num_dilutions - 1) * padding > img_w + spot_diam/2:
                 print(f"Found missing column on plate {self._group}")
                 if manual_range:
-                    col_start = input(f"Specify col start offset (currently {col_start}):")
-                    col_end = input(f"Specify final col number (currently {col_end}:")
+                    col_start = int(input(f"Specify col start offset (currently {col_start}):"))
+                    col_end = int(input(f"Specify final col number (currently {col_end}:"))
+                    plot_rois(img, spots, show=True)
+                    ncols = col_end - col_start
                 else:
+                    ncols -= 1
                     col_end = ncols
             for r in range(nrows):
                 for c in range(ncols):
@@ -249,6 +255,8 @@ class Plate:
                                              self._num_dilutions - 1)))))
                     ax.axhline(sectors[-1][0])
                     ax.axvline(sectors[-1][1])
+            for i, s in enumerate(sectors):
+                ax.text(get_box_center(s)[1], get_box_center(s)[0], self._construct_names[i], color='white')
         else:
             # TODO: Vertical layout
             while nrows > 1 and spot_diam * nrows * self._num_dilutions + (
@@ -259,21 +267,32 @@ class Plate:
                 ncols -= 1
                 print(f"Found missing row in plate {self._group}")
 
-        if save_path is not None:
-            ax.set_title(f"Plate {self._group}, {self._condition}")
-            plt.savefig(save_path)
-        if show_plot:
-            plt.show()
-        else:
-            plt.close()
         # Construct name checklist
         missing_constructs = [c for c in self._construct_names if c is not None]
-        # Create construct objects
+        # Create construct objects (iterate through `_construct_names` rather than `labels`, since
+        # the former contains NoneType labels, while the latter does not)
         for s, c in zip(sectors, self._construct_names):
+            # Skip sectors without constructs
+            if c is None:
+                continue
             # Get the bounding boxes whose center point is located within the sector bounding box
-            spots_in_sector = [b for b in spots if is_in_bbox(get_box_center(b), s)]
+            spots_in_sector = sorted([b for b in spots if is_in_bbox(get_box_center(b), s)],
+                                     key=lambda b: b[1] if self._horizontal else b[0])
+            for i in range(1, len(spots_in_sector)):
+                prev_spot = spots_in_sector[i-1]
+                spot = spots_in_sector[i]
+                if self._horizontal and spot[1] < prev_spot[3]:
+                    spots_in_sector[i - 1] = (
+                        spot[0], prev_spot[3] + 1, spot[2], spot[3]
+                    )
+                elif not self._horizontal and spot[0] < prev_spot[2]:
+                    spots_in_sector[i - 1] = (
+                        prev_spot[2] + 1, *spot[1:]
+                    )
+            add_rois(ax, spots_in_sector)
+
             print(f"Found {len(spots_in_sector)} spots in construct '{c}'")
-            constr = Construct(c, self._num_dilutions)
+            constr = Construct(c, self._num_dilutions) if c is not None else None
             constr.set_rois(img, spots_in_sector, threshold=self.threshold)
             self._constructs[c] = constr
             # Remove construct from 'missing' list if ROIs are found
@@ -283,6 +302,14 @@ class Plate:
         for c in missing_constructs:
             self._constructs[c] = Construct(c, self._num_dilutions)
         self._sectors = sectors
+        # Save or show the labeled image
+        if save_path is not None:
+            ax.set_title(f"Plate {self._group}, {self._condition}")
+            plt.savefig(save_path)
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()
 
     def make_figure(self, layout=None, **kwargs):
         """

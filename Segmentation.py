@@ -26,12 +26,12 @@ def straighten_image(img, plot=False, **kwargs):
         plt.title(f"Rotation = {rot_degrees:.2f} degrees")
         plt.show()
     print(f"Image rotated {-rot_degrees} degrees")
-    return rotate(img, angle=rot_degrees)
+    return rotate(img, angle=rot_degrees, mode='edge')
 
 
-def find_plate_region(img, canny_sigma=1, report=False):
+def find_plate_region(img, canny_sigma=1, tolerance=20, report=False):
     # Find regions separated by edges
-    edges = morphology.closing(canny(img, sigma=canny_sigma), morphology.square(5))
+    edges = morphology.dilation(canny(img, sigma=canny_sigma), morphology.square(tolerance))
     try:
         thresh = filters.threshold_otsu(edges)
     except ValueError:
@@ -39,7 +39,7 @@ def find_plate_region(img, canny_sigma=1, report=False):
         plt.imshow(img)
         plt.show()
         return img
-    labeled, num_regions = label(edges < thresh, return_num=True, connectivity=1)
+    labeled, num_regions = label(edges < thresh, return_num=True, connectivity=1, background=-1)
     if report:
         print("Number of regions:", num_regions)
     # Find the area that represents the interior of the plate
@@ -81,7 +81,6 @@ def find_spots(img, radius, design, show_plot=False, save_plot=None, ecc_cutoff=
     spot_regionprops = [r for r in regionprops(spot_regions) if r.eccentricity < ecc_cutoff]
     # Sort by area
     start_spots = sorted(spot_regionprops, key=lambda r: r.area, reverse=True)[:n * spc]
-    plot_rois(img, [s.bbox for s in start_spots])
     # Save image with bounding boxes, if a filepath is provided
     if isinstance(save_plot, str):
         fig, ax = plot_rois(img, [s.bbox for s in spot_regionprops])
@@ -173,7 +172,7 @@ def extract_and_label(img, bbox, threshold, tolerance):
     return spot, n_regions, threshold
 
 
-def refine_spot(img, bbox, threshold='binary', tolerance=1, max_shift=0.25, max_iter=20):
+def refine_spot(img, bbox, threshold='binary', tolerance=1, max_shift=0.15, max_iter=20):
     '''
     Iteratively search for the center of a spot which the initial bounding box overlaps.
     :param img: Image array containing all spots

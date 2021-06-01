@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from shapely.geometry import Polygon
 
 
 def extract(image, bbox, rois=None):
@@ -45,8 +46,10 @@ def new_bbox_at(coords, bbox, img, mode="center"):
     return [int(b) for b in bbox]
 
 
-def plot_rois(img, rois, show=False):
+def plot_rois(img, rois, show=False, title=None):
     fig, ax = plt.subplots()
+    if title:
+        fig.suptitle(title)
     ax.imshow(img)
     for r in rois:
         ymin, xmin, ymax, xmax = r
@@ -59,24 +62,31 @@ def plot_rois(img, rois, show=False):
         return fig, ax
 
 
+def add_rois(axes, rois):
+    for r in rois:
+        ymin, xmin, ymax, xmax = r
+        rect = mpatches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, fill=False, edgecolor='red', linewidth=1)
+        axes.add_patch(rect)
+    return axes
+
+
 def is_in_bbox(point, bbox):
     return (bbox[0] <= point[0] <= bbox[2]) and (bbox[1] <= point[1] <= bbox[3])
 
 
-def check_intersection(b0, b1):
-    boxes_intersect = False
-    b0_corners = ((b0[0], b0[1]),
-                  (b0[0], b0[3]),
-                  (b0[2], b0[3]),
-                  (b0[2], b0[1]))
-    for c in b0_corners:
-        y, x = c
-        boxes_intersect |= (b1[0] < y < b1[2]) & (b1[1] < x < b1[3])
-    b1_corners = ((b1[0], b1[1]),
-                  (b1[0], b1[3]),
-                  (b1[2], b1[3]),
-                  (b1[2], b1[1]))
-    for c in b1_corners:
-        y, x = c
-        boxes_intersect |= (b0[0] < y < b0[2]) & (b0[1] < x < b0[3])
-    return boxes_intersect
+def check_intersection(rect1, rect2):
+    rect1_corners = ((rect1[0], rect1[1]),
+                     (rect1[0], rect1[3]),
+                     (rect1[2], rect1[3]),
+                     (rect1[2], rect1[1]))
+    rect2_corners = ((rect2[0], rect2[1]),
+                     (rect2[0], rect2[3]),
+                     (rect2[2], rect2[3]),
+                     (rect2[2], rect2[1]))
+    a = Polygon(rect1_corners)
+    b = Polygon(rect2_corners)
+    return a.intersects(b)
+
+
+def bbox_area(bbox):
+    return abs(bbox[2] - bbox[0]) * abs(bbox[3] - bbox[1])
