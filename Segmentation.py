@@ -212,12 +212,14 @@ def refine_spot_recursive(curr_iter, img, bbox, start_coords, metric, threshold,
     else:
         spot, n_regions = label(spot > threshold, return_num=True, connectivity=tolerance)
 
+    # Normalize spot size
+    spot = morphology.white_tophat(spot, morphology.disk(10)) + morphology.opening(spot, morphology.disk(10))
     # Get the centroids and areas of all regions
     spot_data = regionprops_table(spot, properties=('label', 'centroid', 'area'))
     spot_center = np.mean(np.row_stack([spot_data["centroid-0"], spot_data["centroid-1"]]), axis=1)
     # Check for NaNs (i.e. lack of points)
     if np.isnan(spot_center).any():
-        print("No spot identified")
+        print("Empty spotting region detected")
         return bbox
     curr_area = np.sum(spot_data['area'])
     # Make a new bounding box centered on the average of the centroids, and extract new regions
