@@ -229,7 +229,6 @@ class Plate:
                 if manual_range:
                     row_start = int(input(f"Specify row start offset (currently {row_start}):"))
                     row_end = int(input(f"Specify final row number (currently {row_end-1}):")) + 1
-                    plot_rois(img, spots, show=True)
                     nrows = row_end - row_start
                 else:
                     # Assume missing row is the last one

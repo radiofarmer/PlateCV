@@ -1,6 +1,7 @@
 from skimage import morphology, filters
 from skimage.feature import canny
 from skimage.measure import label, regionprops, regionprops_table
+from scipy import ndimage as ndi
 from skimage.transform import probabilistic_hough_line, rotate
 import matplotlib.pyplot as plt
 from PlateCV.Utils import *
@@ -66,16 +67,14 @@ def find_spots(img, radius, design, show_plot=False, save_plot=None, ecc_cutoff=
         spc = design['spots_per_construct']
         hzn = design['horizontal']
     n = rows * cols
-    # TODO: Apply smoothing
+    # Identify edges to get rid of smooth gradients in the background
     spots = img
-    # Get the size of the spots based on the largest ones visible
-    #   First consolidate the spots into solid regions
-    spot_thresh = filters.threshold_li(spots)  # Li's method chosen empirically
-    # Turn large colonies into solid regions
-    spot_edges = morphology.closing(spots > spot_thresh, morphology.disk(radius / 4))
-    # Get rid of individual colonies
-    spot_edges = morphology.opening(spot_edges > spot_thresh, morphology.disk(radius * 0.1))
-    spot_regions = label(spot_edges)
+    spot_edges = morphology.closing(filters.sobel(img), morphology.square(5))
+    spot_edges = filters.apply_hysteresis_threshold(spot_edges,
+                                                        filters.threshold_minimum(spot_edges),
+                                                        np.mean(spot_edges[spot_edges > np.mean(spot_edges)]))
+    spots_filled = ndi.binary_fill_holes(spot_edges)
+    spot_regions = label(spots_filled)
     #   Then get the n * sps largest regions, where n = number of constructs and sps = spots per series, to serve as
     #       templates
     spot_regionprops = [r for r in regionprops(spot_regions) if r.eccentricity < ecc_cutoff]
@@ -126,7 +125,7 @@ def find_spots(img, radius, design, show_plot=False, save_plot=None, ecc_cutoff=
     step_size = span / spc  # Space between spots of the same construct
     # Get bounding boxes for all regions
     bboxes = []
-    spots_binary = spots > spot_thresh
+    spots_binary = spots > filters.threshold_li(np.where(spots_filled, spots, 0))
     for reg in start_spots:
         for group in range(cols if hzn else rows):
             dir_idx = int(hzn)
