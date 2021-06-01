@@ -1,4 +1,6 @@
 from typing import Union
+
+import matplotlib.pyplot as plt
 import numpy as np
 from skimage import filters
 from scipy import spatial
@@ -166,6 +168,15 @@ class Plate:
         # First, check whether any spots are present at all
         if not len(spots):
             for const in self.labels:
+                # Cut out only the area containing spots and adjust the spot coordinates accordingly
+                self._img = img
+                plt.imshow(img)
+                if save_path is not None:
+                    plt.title(f"Plate {self._group}, {self._condition}")
+                    plt.savefig(save_path)
+                    plt.close()
+                else:
+                    plt.show()
                 self._constructs[const] = Construct(const, self._num_dilutions)
             return
 
@@ -185,29 +196,45 @@ class Plate:
         self._threshold = Thresholds[threshold](img)
         fig, ax = plot_rois(img, spots, False)
 
-        # Check for missing rows or columns
+        # Check for missing rows or columns by comparing the size of the image to the predicted size based
+        # on the space between spots
         img_h, img_w = img.shape
         nrows, ncols = self._layout.shape
         spot_diam = np.mean(np.concatenate(([b[2] - b[0] for b in spots], [b[3] - b[1] for b in spots])))
         centers = [get_box_center(b) for b in spots]
-        adjacent_dists = [d for d in spatial.distance_matrix(centers, centers).ravel() if
+        # Measure the distances between adjacent spots
+        all_dists = spatial.distance_matrix(centers, centers)
+        adjacent_dists = [d for d in all_dists.ravel() if
                           spot_diam < d < 1.5 * spot_diam]
-        padding = np.mean(adjacent_dists) - spot_diam
+        # If there are no adjacent spots, see if separate columns can be identified
+        if len(adjacent_dists) == 0 and len(spots) > 1:
+            idx = np.unravel_index(np.argmax(all_dists), all_dists.shape)
+            b0, b1 = (spots[i] for i in idx)
+            plot_rois(img, [b0, b1], show=True)
+            sep = input(f"How many {'columns' if self._horizontal else 'rows'} separate these two spots?")
+            if self._horizontal:
+                padding = (get_box_center(b1)[1] - get_box_center(b0)[1]) / sep - spot_diam * self._num_dilutions
+                padding /= self._num_dilutions - 1
+            else:
+                padding = (get_box_center(b1)[0] - get_box_center(b0)[0]) / sep - spot_diam * self._num_dilutions
+                padding /= self._num_dilutions - 1
+        else:
+            padding = np.mean(adjacent_dists) - spot_diam
         if self._horizontal:
             row_start, row_end = 0, nrows
             col_start, col_end = 0, ncols
             while nrows > 1 and spot_diam * nrows + (nrows - 1) * padding > img_h:
                 nrows -= 1
-                print(f"Found missing row in plate {self._group}")
+                print(f"Found missing row on plate {self._group}")
                 if manual_range:
                     row_start = input(f"Specify row start offset (currently {row_start}):")
-                    row_end = input(f"Specify final row number (currently {row_end}:")
+                    row_end = input(f"Specify final row number (currently {row_end}):")
                 else:
                     row_end = nrows
             while ncols > 1 and spot_diam * ncols * self._num_dilutions + (
                     ncols * self._num_dilutions - 1) * padding > img_w:
                 ncols -= 1
-                print(f"Found missing column in plate {self._group}")
+                print(f"Found missing column on plate {self._group}")
                 if manual_range:
                     col_start = input(f"Specify col start offset (currently {col_start}):")
                     col_end = input(f"Specify final col number (currently {col_end}:")

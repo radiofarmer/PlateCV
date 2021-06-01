@@ -35,6 +35,7 @@ def find_plate_region(img, canny_sigma=1, report=False):
     try:
         thresh = filters.threshold_otsu(edges)
     except ValueError:
+        print("Error computing threshold")
         plt.imshow(img)
         plt.show()
         return img
@@ -55,7 +56,7 @@ def find_plate_region(img, canny_sigma=1, report=False):
     return img[plate_bbox[0]:plate_bbox[2], plate_bbox[1]:plate_bbox[3]]
 
 
-def find_spots(img, radius, design):
+def find_spots(img, radius, design, show_plot=False, save_plot=None, ecc_cutoff=0.5):
     # Rows and columns (of constructs), spots per series (i.e. per construct), horizontal orientation
     if isinstance(design, tuple):
         rows, cols, spc, hzn = design
@@ -70,14 +71,22 @@ def find_spots(img, radius, design):
     # Get the size of the spots based on the largest ones visible
     #   First consolidate the spots into solid regions
     spot_thresh = filters.threshold_li(spots)  # Li's method chosen empirically
-    spot_edges = morphology.closing(spots > spot_thresh, morphology.disk(6))  # Turn large colonies into solid regions
-    spot_edges = morphology.opening(spot_edges, morphology.disk(radius * 0.1))  # Get rid of individual colonies
+    # Turn large colonies into solid regions
+    spot_edges = morphology.closing(spots > spot_thresh, morphology.disk(radius / 2))
+    # Get rid of individual colonies
+    spot_edges = morphology.opening(spot_edges > spot_thresh, morphology.disk(radius * 0.1))
     spot_regions = label(spot_edges)
     #   Then get the n * sps largest regions, where n = number of constructs and sps = spots per series, to serve as
     #       templates
-    spot_regionprops = [r for r in regionprops(spot_regions) if r.eccentricity < 0.5]
+    spot_regionprops = [r for r in regionprops(spot_regions) if r.eccentricity < ecc_cutoff]
     # Sort by area
     start_spots = sorted(spot_regionprops, key=lambda r: r.area, reverse=True)[:n * spc]
+    # Save image with bounding boxes, if a filepath is provided
+    if isinstance(save_plot, str):
+        fig, ax = plot_rois(img, [s.bbox for s in spot_regionprops])
+        plt.savefig(save_plot)
+    if show_plot:
+        plot_rois(img, [s.bbox for s in spot_regionprops], show=True)
     # Sort by difference between filled and real area (increasing)
     start_spots.sort(key=lambda r: r.filled_area - r.area)
     spot_diam = np.mean([r.equivalent_diameter for r in start_spots[:n]])
@@ -94,7 +103,7 @@ def find_spots(img, radius, design):
         top_left = sorted_by_coord[0]
     else:
         print("No spots found on plate!")
-        return start_spots, []
+        return spots, []
 
     # If there are multiple rows (if vertical) or columns (if horizontal) of constructs, find the span between them
     if hzn and cols > 1 or not hzn and rows > 1:
@@ -135,7 +144,9 @@ def find_spots(img, radius, design):
                         adj_spot_box = refine_spot(spots_binary,
                                                    (spot_box[0], x_new, spot_box[2], x_new + spot_diam),
                                                    threshold="binary")
-                        bboxes.append(adj_spot_box)
+                        # TODO: Only add the new bounding box if it doesn't overlap with the previous one
+                        if not check_intersection(bboxes[-1], adj_spot_box):
+                            bboxes.append(adj_spot_box)
                     else:
                         y_new = spot_box[0] + i * step_size
                         adj_spot_box = refine_spot(spots_binary,
@@ -180,12 +191,14 @@ def refine_spot(img, bbox, threshold='binary', tolerance=1, max_shift=0.25, max_
     :return: The optimized bounding box for the spot, hopefully centered directly on the region to which sample
     was initially applied
     '''
-    bbox = refine_spot_recursive(0, img, bbox, "num_regions", threshold, tolerance, max_iter)
-    return refine_spot_recursive(0, img, bbox, "area", threshold, tolerance, max_iter)
+    bbox = refine_spot_recursive(0, img, bbox, get_box_center(bbox), "num_regions", threshold, tolerance,
+                                 max_shift * (bbox[2] - bbox[0]), max_iter)
+    return refine_spot_recursive(0, img, bbox, get_box_center(bbox), "area", threshold, tolerance,
+                                 max_shift * (bbox[2] - bbox[0]), max_iter)
 
 
-def refine_spot_recursive(curr_iter, img, bbox, metric="num_regions", threshold='binary',
-                          tolerance=1, max_shift=0.25, max_iter=20):
+def refine_spot_recursive(curr_iter, img, bbox, start_coords, metric, threshold,
+                          tolerance, max_shift, max_iter):
     # Get the initial number of regions in the bounding box
     spot = extract(img, bbox)
     if threshold == 'auto':
@@ -214,14 +227,19 @@ def refine_spot_recursive(curr_iter, img, bbox, metric="num_regions", threshold=
     spot, n_regions_new = label(spot, return_num=True, connectivity=tolerance)
     new_area = np.sum(regionprops_table(spot, properties=('area',))['area'])
     # Recursively evaluate as long as the new bounding box contains more regions without decreasing the area
+    displacement = np.sqrt((get_box_center(bbox_new)[0] - start_coords[0]) ** 2 +
+                           (get_box_center(bbox_new)[1] - start_coords[1]) ** 2)
     if metric == "num_regions":
-        if curr_iter < max_iter and n_regions_new > n_regions and new_area >= curr_area:
-            return refine_spot_recursive(curr_iter + 1, img, bbox_new, "num_regions", threshold, tolerance)
+
+        if curr_iter < max_iter and n_regions_new > n_regions and new_area >= curr_area and displacement <= max_shift:
+            return refine_spot_recursive(curr_iter + 1, img, bbox_new, start_coords, "num_regions", threshold,
+                                         tolerance, max_shift, max_iter)
         else:
             return bbox
     elif metric == "area":
-        if curr_iter < max_iter and n_regions_new >= n_regions and new_area > curr_area:
-            return refine_spot_recursive(curr_iter + 1, img, bbox_new, "num_regions", threshold, tolerance)
+        if curr_iter < max_iter and n_regions_new >= n_regions and new_area > curr_area and displacement <= max_shift:
+            return refine_spot_recursive(curr_iter + 1, img, bbox_new, start_coords, "area",
+                                         threshold, tolerance, max_shift, max_iter)
         else:
             return bbox
 
