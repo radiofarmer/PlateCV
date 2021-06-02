@@ -59,6 +59,7 @@ class Construct:
         self._num_dilutions = num_dilutions
         self._props = properties
         self._rois = {lab: d for lab, d in enumerate(data)} if data is not None else []
+        self._roi_bounds = []
         self._threshold = None
 
     def __getitem__(self, key):
@@ -69,8 +70,9 @@ class Construct:
 
     def set_rois(self, img, bboxes, threshold: Union[str, int] = 'li'):
         if bboxes:
+            self._roi_bounds = bboxes
             self._rois = {i: ROI(extract(img, box), self._label + f"_D{i}")
-                          for i, box in enumerate(bboxes)}
+                          for i, box in enumerate(self._roi_bounds)}
         else:
             self._rois = {}
             return
@@ -116,6 +118,10 @@ class Construct:
     def label(self):
         return self._label
 
+    @property
+    def roi_bboxes(self):
+        return self._roi_bounds
+
 
 class Plate:
     def __init__(self, layout, spots_per_construct, condition, group=None, orientation='horizontal'):
@@ -128,7 +134,9 @@ class Plate:
         self._horizontal = True if orientation.lower() == 'horizontal' else False
 
         # Construct data
-        self._img = None
+        self._img_cropped = None
+        self._img_full = None
+        self._spot_region = None
         self._threshold = 0
         self._constructs = {}
         self._sectors = []
@@ -169,7 +177,7 @@ class Plate:
         if not len(spots):
             for const in self.labels:
                 # Cut out only the area containing spots and adjust the spot coordinates accordingly
-                self._img = img
+                self._img_cropped = img
                 plt.imshow(img)
                 if save_path is not None:
                     plt.title(f"Plate {self._group}, {self._condition}")
@@ -178,6 +186,9 @@ class Plate:
                 else:
                     plt.show()
                 self._constructs[const] = Construct(const, self._num_dilutions)
+
+                # Create empty sectors
+                self._sectors = [(0, 0, 0, 0) for _ in range(len(self._construct_names))]
             return
 
         # List to hold the regions that (hopefully) contain spots derived from the same construct
@@ -189,9 +200,12 @@ class Plate:
             np.max([b[2] for b in spots]),
             np.max([b[3] for b in spots])
         ]
+        self._spot_region = bounds
+        # Save the full image
+        self._img_full = img
         # Cut out only the area containing spots and adjust the spot coordinates accordingly
         img, spots = extract(img, bounds, spots)
-        self._img = img
+        self._img_cropped = img
         # Measure a global threshold value
         self._threshold = Thresholds[threshold](img)
         fig, ax = plt.subplots()
@@ -201,6 +215,8 @@ class Plate:
         # on the space between spots
         img_h, img_w = img.shape
         nrows, ncols = self._layout.shape
+        row_start, row_end = 0, nrows
+        col_start, col_end = 0, ncols
         spot_diam = np.mean(np.concatenate(([b[2] - b[0] for b in spots], [b[3] - b[1] for b in spots])))
         centers = [get_box_center(b) for b in spots]
         # Measure the distances between adjacent spots
@@ -211,25 +227,25 @@ class Plate:
         if len(adjacent_dists) == 0 and len(spots) > 1:
             idx = np.unravel_index(np.argmax(all_dists), all_dists.shape)
             b0, b1 = (spots[i] for i in idx)
-            plot_rois(img, [b0, b1], show=True)
-            sep = int(input(f"How many {'columns' if self._horizontal else 'rows'} separate these two spots?"))
-            if self._horizontal:
-                padding = (get_box_center(b1)[1] - get_box_center(b0)[1]) / sep - spot_diam * self._num_dilutions
-                padding /= self._num_dilutions - 1
+            sep = int(input(f"How many {'columns' if self._horizontal else 'rows'} have visible spots?"))
+            if sep == 0:
+                padding = 0
             else:
-                padding = (get_box_center(b1)[0] - get_box_center(b0)[0]) / sep - spot_diam * self._num_dilutions
-                padding /= self._num_dilutions - 1
+                if self._horizontal:
+                    padding = (get_box_center(b1)[1] - get_box_center(b0)[1]) / sep - spot_diam * self._num_dilutions
+                    padding /= self._num_dilutions - 1
+                else:
+                    padding = (get_box_center(b1)[0] - get_box_center(b0)[0]) / sep - spot_diam * self._num_dilutions
+                    padding /= self._num_dilutions - 1
         else:
             padding = np.mean(adjacent_dists) - spot_diam
         if self._horizontal:
-            row_start, row_end = 0, nrows
-            col_start, col_end = 0, ncols
             while nrows > 1 and spot_diam * nrows + (nrows - 1) * padding > img_h + spot_diam/2:
                 print(f"Found missing row on plate {self._group}")
                 if manual_range:
                     row_start = int(input(f"Specify row start offset (currently {row_start}):"))
-                    row_end = int(input(f"Specify final row number (currently {row_end-1}):")) + 1
-                    nrows = row_end - row_start
+                    row_end = int(input(f"Specify zero-indexed final row number (currently {row_end}):"))
+                    nrows = row_end + 1 - row_start
                 else:
                     # Assume missing row is the last one
                     nrows -= 1
@@ -239,9 +255,8 @@ class Plate:
                 print(f"Found missing column on plate {self._group}")
                 if manual_range:
                     col_start = int(input(f"Specify col start offset (currently {col_start}):"))
-                    col_end = int(input(f"Specify final col number (currently {col_end}:"))
-                    plot_rois(img, spots, show=True)
-                    ncols = col_end - col_start
+                    col_end = int(input(f"Specify zero-indexed final col number (currently {col_end}:"))
+                    ncols = col_end + 1 - col_start
                 else:
                     ncols -= 1
                     col_end = ncols
@@ -265,6 +280,46 @@ class Plate:
             while ncols > 1 and spot_diam * ncols + (ncols - 1) * padding > img_h:
                 ncols -= 1
                 print(f"Found missing row in plate {self._group}")
+            for r in range(nrows):
+                for c in range(ncols):
+                    pass
+
+        # Add missing sectors
+        if len(sectors) < len(self._construct_names):
+            sector_height = np.mean([s[2] - s[0] for s in sectors])
+            sector_width = np.mean([s[3] - s[1] for s in sectors])
+            nrows, ncols = self._layout.shape  # Get expected number of rows and columns again
+            if self._horizontal:
+                missing_rows = [r_ for r_ in range(nrows) if r_ < row_start or r_ > row_end]
+                for r in missing_rows:
+                    for c in range(col_start, col_end):
+                        row_offset = -row_start * sector_height if r < row_start else (r-row_end)*sector_height
+                        col_offset = -col_start * sector_height if c < col_start else (c-col_end)*sector_height
+                        new_sector = (
+                            r * sector_height + row_offset,
+                            c * sector_width + col_offset,
+                            (r+1) * sector_height + row_offset,
+                            (c+1) * sector_width + col_offset
+                        )
+                        if r < row_start:
+                            sectors.insert(r + c, new_sector)
+                        else:
+                            sectors.append(new_sector)
+                missing_cols = [c_ for c_ in range(ncols) if c_ < col_start or c_ > col_end]
+                for c in missing_cols:
+                    for r in range(nrows):
+                        row_offset = -row_start * sector_height if r < row_end else (r - row_end) * sector_height
+                        col_offset = -col_start * sector_height if c < col_end else (c - col_end) * sector_height
+                        new_sector = (
+                            r * sector_height + row_offset,
+                            c * sector_width + col_offset,
+                            (r+1) * sector_height + row_offset,
+                            (c+1) * sector_width + col_offset
+                        )
+                        if c < col_start:
+                            sectors.insert(r + c, new_sector)
+                        else:
+                            sectors.append(new_sector)
 
         # Construct name checklist
         missing_constructs = [c for c in self._construct_names if c is not None]
@@ -325,7 +380,7 @@ class Plate:
                     ax[r, c].axis('off')
                     continue
                 try:
-                    ax[r, c].imshow(extract(self._img, self._sectors[r + c*layout[0]]), **kwargs)
+                    ax[r, c].imshow(extract(self._img_cropped, self._sectors[r + c * layout[0]]), **kwargs)
                 except IndexError:
                     ax[r, c].axis('off')
                 ax[r, c].xaxis.set_ticks([])
@@ -334,8 +389,32 @@ class Plate:
         return fig, ax
 
     def get_sector(self, lab):
-        idx = self._construct_names.index(lab)
-        return extract(self._img, self._sectors[idx])
+        if lab is None:
+            return np.array([[]])
+        const = self._constructs[lab]
+        try:
+            region = (
+                min([b[0] for b in const.roi_bboxes]),
+                min([b[1] for b in const.roi_bboxes]),
+                max([b[2] for b in const.roi_bboxes]),
+                max([b[3] for b in const.roi_bboxes]),
+            )
+            return extract(self._img_cropped, region)
+        except ValueError:
+            print("Empty sector found in get_sector")
+            idx = self._construct_names.index(lab)
+            sector = self._sectors[idx]
+            if self._spot_region is not None:
+                y_offset, x_offset = self._spot_region[:2]
+            else:
+                return np.array([[]])
+            region = (
+                sector[0] + y_offset,
+                sector[1] + x_offset,
+                sector[2] + y_offset,
+                sector[3] + x_offset
+            )
+            return extract(self._img_full, region)
 
     @property
     def constructs(self):
@@ -343,7 +422,7 @@ class Plate:
 
     @property
     def labels(self):
-        return (c for c in self._construct_names if c is not None)
+        return tuple(c for c in self._construct_names if c is not None)
 
     @property
     def layout(self):
