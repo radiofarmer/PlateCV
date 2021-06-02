@@ -333,9 +333,17 @@ class Plate:
                 ax[r, c].set_ylabel(self._construct_names[r + c*layout[0]].replace("_", " "))
         return fig, ax
 
+    def get_sector(self, lab):
+        idx = self._construct_names.index(lab)
+        return extract(self._img, self._sectors[idx])
+
+    @property
+    def constructs(self):
+        return (self._constructs[lab] for lab in self.labels)
+
     @property
     def labels(self):
-        return [c for c in self._construct_names if c is not None]
+        return (c for c in self._construct_names if c is not None)
 
     @property
     def layout(self):
