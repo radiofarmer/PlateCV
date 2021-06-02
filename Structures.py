@@ -290,7 +290,7 @@ class Plate:
             sector_width = np.mean([s[3] - s[1] for s in sectors])
             nrows, ncols = self._layout.shape  # Get expected number of rows and columns again
             if self._horizontal:
-                missing_rows = [r_ for r_ in range(nrows) if r_ < row_start or r_ > row_end]
+                missing_rows = [r_ for r_ in range(nrows) if r_ < row_start or r_ >= row_end]
                 for r in missing_rows:
                     for c in range(col_start, col_end):
                         row_offset = -row_start * sector_height if r < row_start else (r-row_end)*sector_height

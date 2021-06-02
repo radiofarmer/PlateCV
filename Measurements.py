@@ -45,22 +45,18 @@ def count_colonies(roi: ROI, filter_func=None, return_image=False, **kwargs):
     mask = roi.mask
     mask_labeled = measure.label(mask, **kwargs)
     if filter_func is not None:
-        colonies = np.where(mask != 0, roi.data, 0)
+        colonies = np.where(mask_labeled != 0, roi.data, 0)
         mask_labeled = filter_func(colonies, mask_labeled)
-    count = np.max(mask_labeled).astype(np.int32)
+    count = np.unique(mask_labeled).shape[0]
     if return_image:
         return count, mask_labeled
     else:
         return count
 
 
-def measure_colony_size(roi: ROI, average=True, filter_func=None, return_image=False, **kwargs):
+def average_colony_size(roi: ROI, filter_func=None, return_image=False, **kwargs):
     if roi is None:
         return (0., None) if return_image else 0.
     count, labels = count_colonies(roi, filter_func=filter_func, return_image=True, **kwargs)
-    colony_props = measure.regionprops(labels)
-    colony_areas = np.array([r.area for r in colony_props])
-    if average:
-        return (np.mean(colony_areas), labels) if return_image else np.mean(colony_areas)
-    else:
-        return (colony_areas, labels) if return_image else colony_areas
+
+    return (np.sum(roi.mask / count), labels) if return_image else np.sum(roi.mask) / count
