@@ -1,8 +1,7 @@
 from typing import Union
-
 import matplotlib.pyplot as plt
 import numpy as np
-from skimage import filters
+from skimage import filters, io, img_as_uint
 from scipy import spatial
 from PlateCV.Utils import *
 
@@ -162,7 +161,8 @@ class Plate:
         else:
             raise StopIteration
 
-    def read_spotting_data(self, img, spots, manual_range=False, save_path=None, show_plot=False, threshold='li'):
+    def read_spotting_data(self, img, spots, manual_range=False, save_rois=None, save_threshold=None,
+                           show_plot=False, threshold='li'):
         """
         Generate construct objects from a segmented plate image
         :param img: The image data of the whole relevant area of the plate, as a numpy array
@@ -179,9 +179,9 @@ class Plate:
                 # Cut out only the area containing spots and adjust the spot coordinates accordingly
                 self._img_cropped = img
                 plt.imshow(img)
-                if save_path is not None:
+                if save_rois is not None:
                     plt.title(f"Plate {self._group}, {self._condition}")
-                    plt.savefig(save_path)
+                    plt.savefig(save_rois)
                     plt.close()
                 else:
                     plt.show()
@@ -207,7 +207,10 @@ class Plate:
         img, spots = extract(img, bounds, spots)
         self._img_cropped = img
         # Measure a global threshold value
-        self._threshold = Thresholds[threshold](img)
+        self._threshold = Thresholds[threshold](np.concatenate([extract(img, s).ravel() for s in spots]))
+        if isinstance(save_threshold, str):
+            io.imsave(save_threshold + (".tif" if ".tif" not in save_threshold else ""),
+                      img_as_uint(img > self._threshold))
         fig, ax = plt.subplots()
         ax.imshow(img)
 
@@ -237,6 +240,8 @@ class Plate:
                 else:
                     padding = (get_box_center(b1)[0] - get_box_center(b0)[0]) / sep - spot_diam * self._num_dilutions
                     padding /= self._num_dilutions - 1
+        elif len(spots) == 1:
+            padding = 0
         else:
             padding = np.mean(adjacent_dists) - spot_diam
         if self._horizontal:
@@ -357,9 +362,9 @@ class Plate:
             self._constructs[c] = Construct(c, self._num_dilutions)
         self._sectors = sectors
         # Save or show the labeled image
-        if save_path is not None:
+        if save_rois is not None:
             ax.set_title(f"Plate {self._group}, {self._condition}")
-            plt.savefig(save_path)
+            plt.savefig(save_rois)
         if show_plot:
             plt.show()
         else:

@@ -1,5 +1,5 @@
 from PlateCV.Structures import ROI
-from skimage import morphology, measure, io
+from skimage import morphology, measure, io, img_as_uint
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -8,7 +8,7 @@ def measure_coverage(roi: ROI):
     if roi is None:
         return 0.
     else:
-        return roi.mask / roi.area
+        return np.sum(roi.mask) / roi.area
 
 
 def measure_optical_density(roi: ROI, return_image=False, save_as=None, **kwargs):
@@ -18,9 +18,9 @@ def measure_optical_density(roi: ROI, return_image=False, save_as=None, **kwargs
     mask = roi.mask
     mask_labeled = measure.label(mask, **kwargs)
     colonies = np.where(mask_labeled != 0, roi.data, 0)
-
+    print(roi.threshold)
     if isinstance(save_as, str):
-        io.imsave(save_as, colonies)
+        io.imsave(save_as, img_as_uint(colonies))
 
     # Calculate the OD for a theoretically all-white image
     max_od = colonies.size * 2**(8 if colonies.dtype == np.uint8 else 16)
@@ -54,9 +54,12 @@ def count_colonies(roi: ROI, filter_func=None, return_image=False, **kwargs):
         return count
 
 
-def average_colony_size(roi: ROI, filter_func=None, return_image=False, **kwargs):
+def average_colony_size(roi: ROI, filter_func=None, return_image=False, save_as=None, **kwargs):
     if roi is None:
         return (0., None) if return_image else 0.
     count, labels = count_colonies(roi, filter_func=filter_func, return_image=True, **kwargs)
+
+    if isinstance(save_as, str):
+        io.imsave(save_as, img_as_uint(labels))
 
     return (np.sum(roi.mask / count), labels) if return_image else np.sum(roi.mask) / count
