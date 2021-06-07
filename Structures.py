@@ -1,7 +1,9 @@
 from typing import Union
 import matplotlib.pyplot as plt
 import numpy as np
-from skimage import filters, io, img_as_uint
+from scipy import ndimage as ndi
+from skimage import filters, io, img_as_uint, morphology
+from skimage.feature import canny
 from scipy import spatial
 from PlateCV.Utils import *
 
@@ -85,7 +87,7 @@ class Construct:
         for k in self._rois.keys():
             self._rois[k].set_threshold(self._threshold)
 
-    def plot_rois(self, func=None):
+    def plot_rois(self, func=None, save_as=None):
         if not self._rois:
             print("No data to display")
             return
@@ -104,10 +106,14 @@ class Construct:
             fig.suptitle(self._label)
         else:
             plt.imshow(img_data[0])
-            plt.axes.xaxis.set_ticks([])
-            plt.axes.yaxis.set_ticks([])
+            plt.xticks([])
+            plt.yticks([])
             plt.title(self._label)
-        plt.show()
+
+        if save_as is not None:
+            plt.savefig(save_as + (".tif" if ".tif" not in save_as else ""))
+        else:
+            plt.show()
 
     @property
     def properties(self):
@@ -206,11 +212,15 @@ class Plate:
         # Cut out only the area containing spots and adjust the spot coordinates accordingly
         img, spots = extract(img, bounds, spots)
         self._img_cropped = img
-        # Measure a global threshold value
-        self._threshold = Thresholds[threshold](np.concatenate([extract(img, s).ravel() for s in spots]))
+
+        # Measure a global threshold value based on the spot ROIs on a reconstructed image
+        # self._threshold = Thresholds[threshold](np.concatenate([extract(img, s).ravel() for s in spots]))
+        self._threshold = Thresholds[threshold](img)
         if isinstance(save_threshold, str):
             io.imsave(save_threshold + (".tif" if ".tif" not in save_threshold else ""),
                       img_as_uint(img > self._threshold))
+
+        # Prepare ROI plot objects
         fig, ax = plt.subplots()
         ax.imshow(img)
 

@@ -18,7 +18,7 @@ def measure_optical_density(roi: ROI, return_image=False, save_as=None, **kwargs
     mask = roi.mask
     mask_labeled = measure.label(mask, **kwargs)
     colonies = np.where(mask_labeled != 0, roi.data, 0)
-    print(roi.threshold)
+
     if isinstance(save_as, str):
         io.imsave(save_as, img_as_uint(colonies))
 

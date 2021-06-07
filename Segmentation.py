@@ -1,4 +1,4 @@
-from skimage import morphology, filters
+from skimage import morphology, filters, img_as_float
 from skimage.feature import canny
 from skimage.measure import label, regionprops, regionprops_table
 from scipy import ndimage as ndi
@@ -28,6 +28,12 @@ def straighten_image(img, plot=False, **kwargs):
         plt.show()
     print(f"Image rotated {-rot_degrees} degrees")
     return rotate(img, angle=rot_degrees, mode='edge')
+
+
+def remove_background(img):
+    img_shift = img - (img.max() - img.min()) / 2.
+    reconst = morphology.reconstruction(img_shift, img)
+    return img - reconst
 
 
 def find_plate_region(img, canny_sigma=1, tolerance=20, report=False):
@@ -89,16 +95,8 @@ def find_spots(img, radius_large, radius_small, design, show_plot=False, save_pl
                                                     np.mean(spot_edges_smoothed[spot_edges > np.mean(spot_edges)]))
     spots_filled = ndi.binary_fill_holes(spot_edges)
     # Tinker with this to adjust the spot size limit:
-    spots_filled = morphology.closing(spots_filled, morphology.disk(radius_large / 4))
-    # Make contiguous regions from clusters of small spots
-    spots_labeled = label(spots_filled)
-    small_spot_labels = [r.label for r in regionprops(spots_labeled) if r.equivalent_diameter <= radius_small]
-    small_spots = np.any([spots_labeled == i for i in small_spot_labels], axis=0).astype(np.uint8)
-    small_spots = morphology.dilation(small_spots, morphology.disk((radius_large + radius_small) / 2))
-    ##########
-    # plt.imshow(small_spots)
-    # plt.show()
-    ##########
+    # spots_filled = morphology.closing(spots_filled, morphology.disk(radius_large / 4))
+
     spot_regions = label(spots_filled)
     #   Then get the n * sps largest regions, where n = number of constructs and sps = spots per series, to serve as
     #       templates
@@ -113,6 +111,7 @@ def find_spots(img, radius_large, radius_small, design, show_plot=False, save_pl
         plt.savefig(save_plot)
     if show_plot:
         plot_rois(img, [s.bbox for s in spot_regionprops], show=True)
+        plt.pause(1)
     # Sort by difference between filled and real area (increasing)
     start_spots.sort(key=lambda r: r.filled_area - r.area)
     spot_diam = np.mean([r.equivalent_diameter for r in start_spots[:n]])
@@ -221,9 +220,9 @@ def refine_spot(img, bbox, threshold='binary', tolerance=1, max_shift=0.15, max_
     was initially applied
     '''
     bbox = refine_spot_recursive(0, img, bbox, get_box_center(bbox), "num_regions", threshold, tolerance,
-                                 max_shift * (bbox[2] - bbox[0]), max_iter, **kwargs)
+                                 max_shift * max(bbox[2] - bbox[0], bbox[3] - bbox[1]), max_iter, **kwargs)
     return refine_spot_recursive(0, img, bbox, get_box_center(bbox), "area", threshold, tolerance,
-                                 max_shift * (bbox[2] - bbox[0]), max_iter, **kwargs)
+                                 max_shift * max(bbox[2] - bbox[0], bbox[3] - bbox[1]), max_iter, **kwargs)
 
 
 def refine_spot_recursive(curr_iter, img, bbox, start_coords, metric, threshold,
@@ -273,9 +272,12 @@ def refine_spot_recursive(curr_iter, img, bbox, start_coords, metric, threshold,
         else:
             return bbox
     elif metric == "area":
+        displacement = np.sqrt((get_box_center(bbox_new)[0] - start_coords[0]) ** 2 +
+                               (get_box_center(bbox_new)[1] - start_coords[1]) ** 2)
         if curr_iter < max_iter and n_regions_new >= n_regions \
                 and new_area > curr_area \
-                and growth <= max_growth:
+                and growth <= max_growth \
+                and displacement <= max_shift:
             return refine_spot_recursive(curr_iter + 1, img, bbox_new, start_coords, "area",
                                          threshold, tolerance, max_shift, max_iter)
         else:

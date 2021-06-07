@@ -56,7 +56,8 @@ def plot_rois(img, rois, show=False, title=None):
         rect = mpatches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, fill=False, edgecolor='red', linewidth=1)
         ax.add_patch(rect)
     if show:
-        fig.show()
+        plt.pause(1)
+        plt.show()
         return None, None
     else:
         return fig, ax
